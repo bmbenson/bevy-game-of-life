@@ -39,11 +39,19 @@ fn main() {
         )
         .insert_resource(board)
         .add_systems(Startup, initial_setup)
+        .add_systems(Update, button_system)
         .run();
 }
 
 fn initial_setup(mut commands: Commands, board: Res<Board>) {
     commands.spawn(Camera2dBundle::default());
+    //Button style
+    let button_style = Style {
+        display: Display::Grid,
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
     //Draw the grid layout!
     commands
         .spawn(NodeBundle {
@@ -65,23 +73,44 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
             ..default()
         })
         .with_children(|builder| {
-            //Every other will be black or red!
-            for c in 0..usize::from(board.squares_wide) {
-                for r in 0..usize::from(board.squares_high) {
-                    let color = if board.squares[c][r] {
-                        Color::RED
-                    } else {
+            //Every other will be black or white!
+            for c in 0..board.squares_wide {
+                for r in 0..board.squares_high {
+                    let color = if board.squares[usize::from(c)][usize::from(r)] {
                         Color::BLACK
+                    } else {
+                        Color::WHITE
                     };
-                    builder.spawn(NodeBundle {
-                        style: Style {
-                            display: Display::Grid,
-                            ..default()
-                        },
+                    builder.spawn(ButtonBundle {
+                        style: button_style.clone(),
                         background_color: BackgroundColor(color),
                         ..default()
                     });
                 }
             }
         });
+}
+
+#[allow(clippy::type_complexity)]
+fn button_system(mut interaction_query: Query<
+    (
+        &Interaction,
+        &mut BackgroundColor,
+    ),
+    (Changed<Interaction>, With<Button>),
+>) {
+    for (interaction, mut color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                println!("Button pressed!");
+                *color = if color.0.eq(&Color::BLACK) {
+                    Color::WHITE
+                }
+                else {
+                    Color::BLACK
+                }.into();
+            },
+            Interaction::Hovered | Interaction::None => {},
+        }
+    }
 }
