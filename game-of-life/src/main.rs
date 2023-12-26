@@ -9,13 +9,21 @@ const TILE_SIZE: u16 = 40;
 struct Board {
     squares_wide: u16,
     squares_high: u16,
+    squares: Vec<Vec<bool>>,
 }
 
 fn main() {
     println!("Bevy app starting!");
     let cols = 20;
     let rows = 20;
-    let board = Board {squares_wide: cols, squares_high: rows};
+    // Create a 2d vector where every other square is on or off.
+    // This is equivalent to a nested for loop over cols then row elements.
+    let board_state = (0..cols).map(|col| 
+        (0..rows).map(|row| 
+            (col + row) % 2 == 0)
+            .collect())
+    .collect();
+    let board = Board {squares_wide: cols, squares_high: rows, squares: board_state};
     let window_width = TILE_SIZE * board.squares_wide;
     let window_height =  TILE_SIZE * board.squares_high;
     App::new()
@@ -58,9 +66,9 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
         })
         .with_children(|builder| {
             //Every other will be black or red!
-            for c in 0..board.squares_wide {
-                for r in 0..board.squares_high {
-                    let color = if (r + c) % 2 == 0 {
+            for c in 0..usize::from(board.squares_wide) {
+                for r in 0..usize::from(board.squares_high) {
+                    let color = if board.squares[c][r] {
                         Color::RED
                     } else {
                         Color::BLACK
