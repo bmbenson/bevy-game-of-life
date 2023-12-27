@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 //Default for the tile sizes.
 const TILE_SIZE: u16 = 40;
+const STATUS_BAR_PX: f32 = 40.0;
 const UPDATE_RATE_SEC: f64 = 0.5;
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash, States)]
@@ -18,7 +19,19 @@ struct Board {
     squares_wide: u16,
     squares_high: u16,
     squares: Vec<Vec<bool>>,
+    alive_squares: usize,
 }
+
+#[derive(Resource, Default)]
+struct GameMetadata {
+    iterations: usize
+}
+
+#[derive(Component)]
+struct IterationText;
+
+#[derive(Component)]
+struct GameStateText;
 
 #[derive(Component, Debug)]
 struct GridLocation {
@@ -37,31 +50,33 @@ fn main() {
             (col + row) % 2 == 0)
             .collect())
     .collect();
-    let board = Board {squares_wide: cols, squares_high: rows, squares: board_state};
-    let window_width = TILE_SIZE * board.squares_wide;
-    let window_height =  TILE_SIZE * board.squares_high;
+    let board = Board {squares_wide: cols, squares_high: rows, squares: board_state, alive_squares: usize::from(cols) * usize::from(rows) / 2};
+    let game_metadata = GameMetadata::default();
+    let window_width = f32::from(TILE_SIZE * board.squares_wide);
+    let window_height =  f32::from(TILE_SIZE * board.squares_high) + STATUS_BAR_PX;
     App::new()
         .add_plugins(
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Conway's Game of Life".into(),
-                    resolution: (f32::from(window_width), f32::from(window_height)).into(),
+                    resolution: (window_width, window_height).into(),
                     ..default()
                 }),
                 ..default()
             })
         )
         .insert_resource(board)
+        .insert_resource(game_metadata)
         .insert_resource(Time::<Fixed>::from_seconds(UPDATE_RATE_SEC))
         .add_state::<GameState>()
         .add_systems(FixedUpdate, update_board.run_if(in_state(GameState::Running)))
         .add_systems(Startup, initial_setup)
-        .add_systems(Update, (button_system, keyboard_system, draw_board).chain())
+        .add_systems(Update, (button_system, keyboard_system, draw_board, status_bar_text_update).chain())
         .run();
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn initial_setup(mut commands: Commands, board: Res<Board>) {
+fn initial_setup(mut commands: Commands, board: Res<Board>, metadata: ResMut<GameMetadata>) {
     commands.spawn(Camera2dBundle::default());
     //Button style
     let button_style = Style {
@@ -74,16 +89,16 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
     commands
         .spawn(NodeBundle {
             style: Style {
-                // Create a grid layout, at 100% of the parent element
-                // Height and width.
+                //Create a grid layout,
                 display: Display::Grid,
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
                 grid_template_columns: vec![
-                    GridTrack::auto(); usize::from(board.squares_wide)
+                    GridTrack::auto()
                 ],
+                //Top Row will take up all the space after the bottom row is complete.
                 grid_template_rows: vec![
-                    GridTrack::auto(); usize::from(board.squares_high)
+                    GridTrack::flex(1.0), GridTrack::px(STATUS_BAR_PX)
                 ],
                 ..default()
             },
@@ -91,24 +106,79 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
             ..default()
         })
         .with_children(|builder| {
-            //Every other will be black or white!
-            for c in 0..board.squares_wide {
-                for r in 0..board.squares_high {
-                    let color = if board.squares[usize::from(c)][usize::from(r)] {
-                        Color::BLACK
-                    } else {
-                        Color::WHITE
-                    };
-                    let grid_loc = GridLocation {column: c, row: r};
-                    builder.spawn(
-                        (ButtonBundle {
-                            style: button_style.clone(),
-                            background_color: BackgroundColor(color),
-                            ..default()
-                        }, grid_loc)
-                    );
+            //Game Area
+            builder.spawn(NodeBundle {
+                style: Style {
+                    //Create a grid layout,
+                    display: Display::Grid,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    grid_template_columns: vec![
+                        GridTrack::auto(); usize::from(board.squares_wide)
+                    ],
+                    grid_template_rows: vec![
+                        GridTrack::auto(); usize::from(board.squares_high)
+                    ],
+                    ..default()
+                },
+                background_color: BackgroundColor(Color::WHITE),
+                ..default()
+            })
+            .with_children(|game_area_builder| {
+                //Every other will be black or white!
+                for c in 0..board.squares_wide {
+                    for r in 0..board.squares_high {
+                        //Set the color based on the board state.
+                        let color = if board.squares[usize::from(c)][usize::from(r)] {
+                            Color::BLACK
+                        } else {
+                            Color::WHITE
+                        };
+                        let grid_loc = GridLocation {column: c, row: r};
+                        game_area_builder.spawn(
+                            (ButtonBundle {
+                                style: button_style.clone(),
+                                background_color: BackgroundColor(color),
+                                ..default()
+                            }, grid_loc)
+                        );
+                    }
                 }
-            }
+            });
+            //Status Tray
+            builder.spawn(NodeBundle {
+                style: Style {
+                    display: Display::Grid,
+                    padding: UiRect::all(Val::Px(6.0)),
+                    grid_template_rows: vec![
+                        GridTrack::auto()
+                    ],
+                    //Left slot, right slot.
+                    grid_template_columns: vec![
+                        GridTrack::auto(), GridTrack::auto()
+                    ],
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|tray_builder| {
+                tray_builder.spawn((TextBundle::from_section(
+                    "Running: [space] to pause, [c] to clear.",
+                    TextStyle {
+                        font: Handle::default(),
+                        font_size: 20.0,
+                        color: Color::BLACK,
+                    },
+                ), GameStateText));
+                tray_builder.spawn((TextBundle::from_section(
+                    format!("Iter:{}; Alive:{}", metadata.iterations, board.alive_squares),
+                    TextStyle {
+                        font: Handle::default(),
+                        font_size: 20.0,
+                        color: Color::BLACK,
+                    },
+                ).with_text_alignment(TextAlignment::Right), IterationText));
+            });
         });
 }
 
@@ -127,6 +197,11 @@ fn button_system(mut interaction_query: Query<
                 let c = usize::from(grid_loc.column);
                 //Get the game state.
                 let cur = board.squares[c][r];
+                if cur {
+                    board.alive_squares -= 1;
+                } else {
+                    board.alive_squares += 1;
+                }
                 println!("Button pressed at ({c},{r}) -- Currently:{cur}");
                 board.squares[c][r] = !cur;
             },
@@ -157,12 +232,31 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
                 board.squares[c][r] = false;
             }
         }
+        board.alive_squares = 0;
     }
 }
 
-fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>) {
+#[allow(clippy::type_complexity, clippy::needless_pass_by_value)]
+fn status_bar_text_update(mut text_params: ParamSet<(Query<&mut Text, With<GameStateText>>, Query<&mut Text, With<IterationText>>)>, board: Res<Board>,
+    metadata: Res<GameMetadata>, game_state: Res<State<GameState>>) {
+    let mut game_state_query = text_params.p0();
+    match game_state.to_owned() {
+        GameState::Running => {
+            game_state_query.single_mut().sections[0].value = "Running: [space] to pause, [c] to clear.".to_string();
+        },
+        GameState::Paused => {
+            game_state_query.single_mut().sections[0].value = "Paused: [space] to resume, [c] to clear, [n] for next.".to_string();
+        },
+    }
+    let mut iter_state_query = text_params.p1();
+    let new_text = format!("Iter:{}; Alive:{}", metadata.iterations, board.alive_squares);
+    iter_state_query.single_mut().sections[0].value = new_text;
+}
+
+fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>, mut metadata: ResMut<GameMetadata>) {
     //Fetch the neighbor counts.
     let neighbor_counts = get_alive_neighbor_counts(board.as_ref());
+    let mut alive_count = 0;
     for grid_loc in &mut query {
         let c = usize::from(grid_loc.column);
         let r = usize::from(grid_loc.row);
@@ -194,9 +288,14 @@ fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>) {
                 new_state = true;
             }
         }
+        if new_state {
+            alive_count += 1;
+        }
         //Update the data
         board.squares[c][r] = new_state;
     }
+    board.alive_squares = alive_count;
+    metadata.iterations += 1;
 }
 
 #[allow(clippy::needless_pass_by_value)]
