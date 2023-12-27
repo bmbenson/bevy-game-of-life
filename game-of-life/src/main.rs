@@ -39,6 +39,15 @@ struct GridLocation {
     column: u16
 }
 
+#[derive(Event, Default)]
+struct BoardNeedsUpdateEvent;
+
+#[derive(Event, Default)]
+struct BoardNeedsDrawingEvent;
+
+#[derive(Event, Default)]
+struct StatusBarNeedsDrawingEvent;
+
 fn main() {
     println!("Bevy app starting!");
     let cols = 20;
@@ -68,10 +77,13 @@ fn main() {
         .insert_resource(board)
         .insert_resource(game_metadata)
         .insert_resource(Time::<Fixed>::from_seconds(UPDATE_RATE_SEC))
+        .add_event::<BoardNeedsUpdateEvent>()
+        .add_event::<BoardNeedsDrawingEvent>()
+        .add_event::<StatusBarNeedsDrawingEvent>()
         .add_state::<GameState>()
-        .add_systems(FixedUpdate, update_board.run_if(in_state(GameState::Running)))
+        .add_systems(FixedUpdate, game_tick_timer.run_if(in_state(GameState::Running)))
         .add_systems(Startup, initial_setup)
-        .add_systems(Update, (button_system, keyboard_system, draw_board, status_bar_text_update).chain())
+        .add_systems(Update, (button_system, keyboard_system, update_board, draw_board, status_bar_text_update).chain())
         .run();
 }
 
@@ -182,6 +194,10 @@ fn initial_setup(mut commands: Commands, board: Res<Board>, metadata: ResMut<Gam
         });
 }
 
+fn game_tick_timer(mut game_board_update_needed: EventWriter<BoardNeedsUpdateEvent>) {
+    game_board_update_needed.send_default();
+}
+
 #[allow(clippy::type_complexity)]
 fn button_system(mut interaction_query: Query<
     (
@@ -189,7 +205,8 @@ fn button_system(mut interaction_query: Query<
         &GridLocation,
     ),
     (Changed<Interaction>, With<Button>),
->, mut board: ResMut<Board>) {
+>, mut board: ResMut<Board>, mut board_needs_drawing: EventWriter<BoardNeedsDrawingEvent>,
+    mut status_bar_needs_update: EventWriter<StatusBarNeedsDrawingEvent>) {
     for (interaction, grid_loc) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
@@ -204,6 +221,8 @@ fn button_system(mut interaction_query: Query<
                 }
                 println!("Button pressed at ({c},{r}) -- Currently:{cur}");
                 board.squares[c][r] = !cur;
+                board_needs_drawing.send_default();
+                status_bar_needs_update.send_default();
             },
             Interaction::Hovered | Interaction::None => {},
         }
@@ -212,7 +231,8 @@ fn button_system(mut interaction_query: Query<
 
 #[allow(clippy::needless_pass_by_value)]
 fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<GameState>>, mut next_game_state: ResMut<NextState<GameState>>, 
-    mut board: ResMut<Board>) {
+    mut board: ResMut<Board>, mut board_needs_drawing_events: EventWriter<BoardNeedsDrawingEvent>,
+    mut board_update_events: EventWriter<BoardNeedsUpdateEvent>, mut status_bar_needs_redraw: EventWriter<StatusBarNeedsDrawingEvent>) {
     if keyboard_input.just_pressed(KeyCode::Space) {
         match game_state.to_owned() {
             GameState::Running => {
@@ -224,6 +244,7 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
                 next_game_state.set(GameState::Running);
             },
         }
+        status_bar_needs_redraw.send_default();
     }
     if keyboard_input.just_pressed(KeyCode::C) {
         println!("Clear");
@@ -233,14 +254,31 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
             }
         }
         board.alive_squares = 0;
+        board_needs_drawing_events.send_default();
+        status_bar_needs_redraw.send_default();
+    }
+    if keyboard_input.just_pressed(KeyCode::N) {
+        println!("Next");
+        //Send an update to update the board state, including the iterations.
+        if game_state.to_owned() == GameState::Paused {
+            board_update_events.send_default();
+        } else {
+            println!("Next disabled when not paused.");
+        } 
     }
 }
 
 #[allow(clippy::type_complexity, clippy::needless_pass_by_value)]
 fn status_bar_text_update(mut text_params: ParamSet<(Query<&mut Text, With<GameStateText>>, Query<&mut Text, With<IterationText>>)>, board: Res<Board>,
-    metadata: Res<GameMetadata>, game_state: Res<State<GameState>>) {
+    metadata: Res<GameMetadata>, next_game_state: Res<NextState<GameState>>, mut status_bar_needs_redraw: EventReader<StatusBarNeedsDrawingEvent>) {
+    if status_bar_needs_redraw.is_empty() {
+        return;
+    }
+    status_bar_needs_redraw.clear();
+    
+    let game_state = next_game_state.0.as_ref().unwrap_or(&GameState::Running);
     let mut game_state_query = text_params.p0();
-    match game_state.to_owned() {
+    match game_state {
         GameState::Running => {
             game_state_query.single_mut().sections[0].value = "Running: [space] to pause, [c] to clear.".to_string();
         },
@@ -253,8 +291,16 @@ fn status_bar_text_update(mut text_params: ParamSet<(Query<&mut Text, With<GameS
     iter_state_query.single_mut().sections[0].value = new_text;
 }
 
-fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>, mut metadata: ResMut<GameMetadata>) {
+
+
+fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>, mut metadata: ResMut<GameMetadata>,
+    mut board_update_events: EventReader<BoardNeedsUpdateEvent>, mut board_needs_draw_event: EventWriter<BoardNeedsDrawingEvent>,
+    mut status_bar_needs_update: EventWriter<StatusBarNeedsDrawingEvent>) {
     //Fetch the neighbor counts.
+    if board_update_events.is_empty() {
+        return;
+    }
+    board_update_events.clear();
     let neighbor_counts = get_alive_neighbor_counts(board.as_ref());
     let mut alive_count = 0;
     for grid_loc in &mut query {
@@ -296,10 +342,16 @@ fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>, mut m
     }
     board.alive_squares = alive_count;
     metadata.iterations += 1;
+    board_needs_draw_event.send_default();
+    status_bar_needs_update.send_default();
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn draw_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, board: Res<Board>) {
+fn draw_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, board: Res<Board>, mut board_needs_draw_events: EventReader<BoardNeedsDrawingEvent>) {
+    if board_needs_draw_events.is_empty() {
+        return;
+    }
+    board_needs_draw_events.clear();
     for (mut color, grid_loc) in &mut query {
         let alive = board.squares[usize::from(grid_loc.column)][usize::from(grid_loc.row)];
         if alive {
