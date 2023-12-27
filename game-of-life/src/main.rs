@@ -6,6 +6,13 @@ use bevy::prelude::*;
 const TILE_SIZE: u16 = 40;
 const UPDATE_RATE_SEC: f64 = 0.5;
 
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash, States)]
+enum GameState {
+    #[default]
+    Running,
+    Paused,
+}
+
 #[derive(Resource)]
 struct Board {
     squares_wide: u16,
@@ -46,12 +53,14 @@ fn main() {
         )
         .insert_resource(board)
         .insert_resource(Time::<Fixed>::from_seconds(UPDATE_RATE_SEC))
-        .add_systems(FixedUpdate, update_board)
+        .add_state::<GameState>()
+        .add_systems(FixedUpdate, update_board.run_if(in_state(GameState::Running)))
         .add_systems(Startup, initial_setup)
-        .add_systems(Update, button_system)
+        .add_systems(Update, (button_system, keyboard_system, draw_board).chain())
         .run();
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn initial_setup(mut commands: Commands, board: Res<Board>) {
     commands.spawn(Camera2dBundle::default());
     //Button style
@@ -107,12 +116,11 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
 fn button_system(mut interaction_query: Query<
     (
         &Interaction,
-        &mut BackgroundColor,
-        &GridLocation
+        &GridLocation,
     ),
     (Changed<Interaction>, With<Button>),
 >, mut board: ResMut<Board>) {
-    for (interaction, mut color, grid_loc) in &mut interaction_query {
+    for (interaction, grid_loc) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 let r = usize::from(grid_loc.row);
@@ -120,13 +128,6 @@ fn button_system(mut interaction_query: Query<
                 //Get the game state.
                 let cur = board.squares[c][r];
                 println!("Button pressed at ({c},{r}) -- Currently:{cur}");
-
-                if cur { //Alive to dead
-                    *color = Color::WHITE.into();
-                }
-                else {
-                    *color = Color::BLACK.into();
-                }
                 board.squares[c][r] = !cur;
             },
             Interaction::Hovered | Interaction::None => {},
@@ -134,10 +135,35 @@ fn button_system(mut interaction_query: Query<
     }
 }
 
-fn update_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, mut board: ResMut<Board>) {
+#[allow(clippy::needless_pass_by_value)]
+fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<GameState>>, mut next_game_state: ResMut<NextState<GameState>>, 
+    mut board: ResMut<Board>) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        match game_state.to_owned() {
+            GameState::Running => {
+                println!("Pausing");
+                next_game_state.set(GameState::Paused);
+            },
+            GameState::Paused => {
+                println!("Running");
+                next_game_state.set(GameState::Running);
+            },
+        }
+    }
+    if keyboard_input.just_pressed(KeyCode::C) {
+        println!("Clear");
+        for c in 0..usize::from(board.squares_wide) {
+            for r in 0..usize::from(board.squares_high) {
+                board.squares[c][r] = false;
+            }
+        }
+    }
+}
+
+fn update_board(mut query: Query<&GridLocation>, mut board: ResMut<Board>) {
     //Fetch the neighbor counts.
     let neighbor_counts = get_alive_neighbor_counts(board.as_ref());
-    for (mut color, grid_loc) in &mut query {
+    for grid_loc in &mut query {
         let c = usize::from(grid_loc.column);
         let r = usize::from(grid_loc.row);
         let cur = board.squares[c][r];
@@ -170,7 +196,14 @@ fn update_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, mut boa
         }
         //Update the data
         board.squares[c][r] = new_state;
-        if new_state {
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn draw_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, board: Res<Board>) {
+    for (mut color, grid_loc) in &mut query {
+        let alive = board.squares[usize::from(grid_loc.column)][usize::from(grid_loc.row)];
+        if alive {
             *color = Color::BLACK.into();
         } else {
             *color = Color::WHITE.into();
