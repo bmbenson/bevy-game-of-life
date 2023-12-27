@@ -12,6 +12,12 @@ struct Board {
     squares: Vec<Vec<bool>>,
 }
 
+#[derive(Component, Debug)]
+struct GridLocation {
+    row: u16,
+    column: u16
+}
+
 fn main() {
     println!("Bevy app starting!");
     let cols = 20;
@@ -81,11 +87,14 @@ fn initial_setup(mut commands: Commands, board: Res<Board>) {
                     } else {
                         Color::WHITE
                     };
-                    builder.spawn(ButtonBundle {
-                        style: button_style.clone(),
-                        background_color: BackgroundColor(color),
-                        ..default()
-                    });
+                    let grid_loc = GridLocation {column: c, row: r};
+                    builder.spawn(
+                        (ButtonBundle {
+                            style: button_style.clone(),
+                            background_color: BackgroundColor(color),
+                            ..default()
+                        }, grid_loc)
+                    );
                 }
             }
         });
@@ -96,19 +105,26 @@ fn button_system(mut interaction_query: Query<
     (
         &Interaction,
         &mut BackgroundColor,
+        &GridLocation
     ),
     (Changed<Interaction>, With<Button>),
->) {
-    for (interaction, mut color) in &mut interaction_query {
+>, mut board: ResMut<Board>) {
+    for (interaction, mut color, grid_loc) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                println!("Button pressed!");
-                *color = if color.0.eq(&Color::BLACK) {
-                    Color::WHITE
+                let r = usize::from(grid_loc.row);
+                let c = usize::from(grid_loc.column);
+                //Get the game state.
+                let cur = board.squares[c][r];
+                println!("Button pressed at ({c},{r}) -- Currently:{cur}");
+
+                if cur { //Alive to dead
+                    *color = Color::WHITE.into();
                 }
                 else {
-                    Color::BLACK
-                }.into();
+                    *color = Color::BLACK.into();
+                }
+                board.squares[c][r] = !cur;
             },
             Interaction::Hovered | Interaction::None => {},
         }
