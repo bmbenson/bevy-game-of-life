@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 //Default for the tile sizes.
 const TILE_SIZE: u16 = 40;
+const UPDATE_RATE_SEC: f64 = 0.5;
 
 #[derive(Resource)]
 struct Board {
@@ -44,6 +45,8 @@ fn main() {
             })
         )
         .insert_resource(board)
+        .insert_resource(Time::<Fixed>::from_seconds(UPDATE_RATE_SEC))
+        .add_systems(FixedUpdate, update_board)
         .add_systems(Startup, initial_setup)
         .add_systems(Update, button_system)
         .run();
@@ -128,5 +131,20 @@ fn button_system(mut interaction_query: Query<
             },
             Interaction::Hovered | Interaction::None => {},
         }
+    }
+}
+
+fn update_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, mut board: ResMut<Board>) {
+    for (mut color, grid_loc) in &mut query {
+        let c = usize::from(grid_loc.column);
+        let r = usize::from(grid_loc.row);
+        let cur = board.squares[c][r];
+        // for now, toggle back and forth.
+        if cur {
+            *color = Color::WHITE.into();
+        } else {
+            *color = Color::BLACK.into();
+        }
+        board.squares[c][r] = !cur;
     }
 }
