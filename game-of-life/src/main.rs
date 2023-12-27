@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 //Default for the tile sizes.
-const TILE_SIZE: u16 = 40;
+const TILE_SIZE: u16 = 8;
 const STATUS_BAR_PX: f32 = 40.0;
 const UPDATE_RATE_SEC: f64 = 0.5;
 
@@ -50,8 +50,8 @@ struct StatusBarNeedsDrawingEvent;
 
 fn main() {
     println!("Bevy app starting!");
-    let cols = 20;
-    let rows = 20;
+    let cols = 100;
+    let rows = 100;
     // Create a 2d vector where every other square is on or off.
     // This is equivalent to a nested for loop over cols then row elements.
     let board_state = (0..cols).map(|col| 
