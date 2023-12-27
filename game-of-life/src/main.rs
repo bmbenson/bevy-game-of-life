@@ -135,16 +135,96 @@ fn button_system(mut interaction_query: Query<
 }
 
 fn update_board(mut query: Query<(&mut BackgroundColor, &GridLocation)>, mut board: ResMut<Board>) {
+    //Fetch the neighbor counts.
+    let neighbor_counts = get_alive_neighbor_counts(board.as_ref());
     for (mut color, grid_loc) in &mut query {
         let c = usize::from(grid_loc.column);
         let r = usize::from(grid_loc.row);
         let cur = board.squares[c][r];
-        // for now, toggle back and forth.
+        let n = neighbor_counts[c][r];
+        let mut new_state = cur;
         if cur {
-            *color = Color::WHITE.into();
+            // Live cell
+            //fewer than two live neighbours dies, as if by underpopulation.
+            if n < 2 {
+                //Underpop
+                new_state = false;
+            }
+            //two or three live neighbours lives on to the next generation.
+            if n == 2 || n == 3 {
+                //We live!
+                new_state = true;
+            }
+            //more than three live neighbours dies, as if by overpopulation.
+            if n > 3 {
+                //Overpop
+                new_state = false;
+            }
         } else {
-            *color = Color::BLACK.into();
+            // Dead Cell
+            //exactly three live neighbours becomes a live cell, as if by reproduction.
+            if n == 3 {
+                //breeeed
+                new_state = true;
+            }
         }
-        board.squares[c][r] = !cur;
+        //Update the data
+        board.squares[c][r] = new_state;
+        if new_state {
+            *color = Color::BLACK.into();
+        } else {
+            *color = Color::WHITE.into();
+        }
     }
+}
+
+fn get_alive_neighbor_counts(board: &Board) -> Vec<Vec<usize>> {
+    let height = usize::from(board.squares_high);
+    let width = usize::from(board.squares_wide);
+    let mut neighbor_counts = vec![vec![0; height]; width];
+    for (c, row) in neighbor_counts.iter_mut().enumerate() {
+        for (r, item) in  row.iter_mut().enumerate() {
+            let mut neighbors = 0;
+            //Top
+            if r > 0 {
+                //T/L
+                if c > 0 && board.squares[c-1][r-1] {
+                    neighbors += 1;
+                }
+                //T/C
+                if board.squares[c][r-1] {
+                    neighbors += 1;
+                }
+                //T/R
+                if c+1 < width && board.squares[c+1][r-1] {
+                    neighbors += 1;
+                }
+            }
+            //Left
+            if c > 0 && board.squares[c-1][r] {
+                neighbors += 1;
+            }
+            //Right
+            if c+1 < width && board.squares[c+1][r] {
+                neighbors += 1;
+            }
+            //Bottom
+            if r+1 < height {
+                //B/L
+                if c > 0 && board.squares[c-1][r+1] {
+                    neighbors += 1;
+                }
+                //B/C
+                if board.squares[c][r+1] {
+                    neighbors += 1;
+                }
+                //B/R
+                if c+1 < width && board.squares[c+1][r+1] {
+                    neighbors += 1;
+                }
+            }
+            *item = neighbors;
+        }
+    }
+    neighbor_counts
 }
