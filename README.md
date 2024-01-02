@@ -1,2 +1,7 @@
 # bevy-game-of-life
-Conway's Game of Life written with the Rust based Bevy game engine.
+
+An example program used in the tutorial hosted on [benson.zone](https://blog.benson.zone/game-of-life/).
+Each commit should correspond to the commit messages listed throughout the blog.
+
+For any feedback, please contact me through github, or use the [mirror medium post](https://medium.com/@bryan.benson/rust-conways-game-of-life-in-bevy-ecs-c7f7e5322640) comments.
+
