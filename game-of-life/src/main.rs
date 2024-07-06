@@ -80,7 +80,7 @@ fn main() {
         .add_event::<BoardNeedsUpdateEvent>()
         .add_event::<BoardNeedsDrawingEvent>()
         .add_event::<StatusBarNeedsDrawingEvent>()
-        .add_state::<GameState>()
+        .init_state::<GameState>()
         .add_systems(FixedUpdate, game_tick_timer.run_if(in_state(GameState::Running)))
         .add_systems(Startup, initial_setup)
         .add_systems(Update, (button_system, keyboard_system, update_board, draw_board, status_bar_text_update).chain())
@@ -189,7 +189,7 @@ fn initial_setup(mut commands: Commands, board: Res<Board>, metadata: ResMut<Gam
                         font_size: 20.0,
                         color: Color::BLACK,
                     },
-                ).with_text_alignment(TextAlignment::Right), IterationText));
+                ).with_text_justify(JustifyText::Right), IterationText));
             });
         });
 }
@@ -230,7 +230,7 @@ fn button_system(mut interaction_query: Query<
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<GameState>>, mut next_game_state: ResMut<NextState<GameState>>, 
+fn keyboard_system(keyboard_input: Res<ButtonInput<KeyCode>>, game_state: Res<State<GameState>>, mut next_game_state: ResMut<NextState<GameState>>, 
     mut board: ResMut<Board>, mut board_needs_drawing_events: EventWriter<BoardNeedsDrawingEvent>,
     mut board_update_events: EventWriter<BoardNeedsUpdateEvent>, mut status_bar_needs_redraw: EventWriter<StatusBarNeedsDrawingEvent>) {
     if keyboard_input.just_pressed(KeyCode::Space) {
@@ -246,7 +246,7 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
         }
         status_bar_needs_redraw.send_default();
     }
-    if keyboard_input.just_pressed(KeyCode::C) {
+    if keyboard_input.just_pressed(KeyCode::KeyC) {
         println!("Clear");
         for c in 0..usize::from(board.squares_wide) {
             for r in 0..usize::from(board.squares_high) {
@@ -257,7 +257,7 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
         board_needs_drawing_events.send_default();
         status_bar_needs_redraw.send_default();
     }
-    if keyboard_input.just_pressed(KeyCode::N) {
+    if keyboard_input.just_pressed(KeyCode::KeyN) {
         println!("Next");
         //Send an update to update the board state, including the iterations.
         if game_state.to_owned() == GameState::Paused {
@@ -270,15 +270,14 @@ fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, game_state: Res<State<Ga
 
 #[allow(clippy::type_complexity, clippy::needless_pass_by_value)]
 fn status_bar_text_update(mut text_params: ParamSet<(Query<&mut Text, With<GameStateText>>, Query<&mut Text, With<IterationText>>)>, board: Res<Board>,
-    metadata: Res<GameMetadata>, next_game_state: Res<NextState<GameState>>, mut status_bar_needs_redraw: EventReader<StatusBarNeedsDrawingEvent>) {
+    metadata: Res<GameMetadata>, game_state: Res<State<GameState>>, mut status_bar_needs_redraw: EventReader<StatusBarNeedsDrawingEvent>) {
     if status_bar_needs_redraw.is_empty() {
         return;
     }
     status_bar_needs_redraw.clear();
-    
-    let game_state = next_game_state.0.as_ref().unwrap_or(&GameState::Running);
+
     let mut game_state_query = text_params.p0();
-    match game_state {
+    match game_state.to_owned() {
         GameState::Running => {
             game_state_query.single_mut().sections[0].value = "Running: [space] to pause, [c] to clear.".to_string();
         },
